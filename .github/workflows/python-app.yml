@@ -8,7 +8,7 @@ on:
 jobs:
   model_training:
     name: Train Model
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted]
     defaults:
       run:
         working-directory: bikeshare_project
@@ -36,7 +36,7 @@ jobs:
 
   model_testing:
     name: Test Model
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted]
     needs: model_training
     defaults:
       run:
@@ -66,7 +66,7 @@ jobs:
         
   build_package:
     name: Build Python Package (.whl)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted]
     needs: model_testing
     steps:
       - name: Checkout repository
@@ -92,7 +92,7 @@ jobs:
   
   dockerize_and_push:
     name: Dockerize & Push to DockerHub
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted]
     needs: build_package
     defaults:
       run:
@@ -121,3 +121,33 @@ jobs:
 
       - name: Push Docker image to DockerHub
         run: docker push ${{ secrets.DOCKER_USERNAME }}/bikeshare-api:22032025
+
+  deploy:
+    name: Deploy to EC2 (Self-hosted)
+    runs-on: [self-hosted]
+    needs: dockerize_and_push
+    defaults:
+      run:
+        working-directory: bikeshare_project/bike_sharing_api
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Log in to DockerHub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Stop and remove old container if exists
+        run: |
+          docker stop bikeshare-api || true
+          docker rm bikeshare-api || true
+
+      - name: Pull latest image
+        run: docker pull ${{ secrets.DOCKER_USERNAME }}/bikeshare-api:22032025
+
+      - name: Run new container
+        run: |
+          docker run -d --name bikeshare-api -p 8000:8000 ${{ secrets.DOCKER_USERNAME }}/bikeshare-api:22032025
+
+      - name: Confirm container is running
+        run: docker ps | grep bikeshare-api
+
